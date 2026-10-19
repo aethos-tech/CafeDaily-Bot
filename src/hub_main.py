@@ -51,14 +51,16 @@ class HubDailyBot(discord.Client):
         logger.info("CaféDaily connected to Discord; project configuration is managed by the Hub")
 
     async def poll(self) -> None:
-        await self.wait_until_ready()
         iteration = 0
         while not self.is_closed():
             try:
-                catalog = await self.bridge.request("POST", "/catalog", {"revision": self.revision})
+                catalog = await self.bridge.request("POST", "/catalog", {"revision": self.revision, "connected": self.is_ready()})
                 if catalog.get("restart"):
                     await self.close()
                     return
+                if not self.is_ready():
+                    await asyncio.sleep(20)
+                    continue
                 self.projects.clear()
                 self.projects.update({project["projectId"]: project for project in catalog["projects"]})
                 for project in list(self.projects.values()):
