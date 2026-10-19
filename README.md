@@ -242,3 +242,43 @@ Copyright © 2026 [Ariel Sousa](https://github.com/aethos-tech) · [Aethos Tech]
 <p align="center">
   Desenvolvido por <strong>Ariel Sousa</strong> · <a href="https://github.com/aethos-tech">Aethos Tech</a>
 </p>
+
+## Integração com o Kina Hub
+
+O modo gerenciado pelo Hub usa o mesmo CaféDaily, com o Hub como fonte dos relatórios. Ele dispensa MongoDB e não publica respostas em canais compartilhados. O modo original continua disponível quando `HUB_API_URL` não está configurado.
+
+No modo Hub:
+
+1. A administração abre **CaféDaily** no menu do Hub, informa o token e habilita os servidores em que o bot está instalado.
+2. A liderança abre **Configurações do projeto → Daily pelo Discord**, escolhe servidor e canal e salva. O serviço publica o painel automaticamente; também é possível solicitar sua atualização pelo Hub.
+3. Cada participante gera um código temporário na aba **Daily report** e usa `/hub-vincular codigo` no servidor do projeto. O código expira em 10 minutos e só pode ser usado uma vez.
+4. O botão **Registrar Daily** abre um fluxo privado com as perguntas atuais do projeto. Formulários maiores são divididos em etapas, incluindo bloqueios.
+5. O envio é validado e salvo no Hub. Atualizar o daily conserva o horário do primeiro envio e mantém um relatório por pessoa, projeto e dia no fuso configurado.
+6. Lembretes chegam por DM apenas a contas vinculadas com a opção habilitada e daily pendente. Dias, horário e fuso vêm do projeto; as preferências da conta são respeitadas. O serviço tenta novamente entregas não confirmadas, com intervalo de 10 minutos e limite de três tentativas por pessoa/dia. Mensagens diretas bloqueadas pelo usuário impedem a entrega.
+
+### Serviço no servidor
+
+Use `docker-compose.hub.yml`, com um arquivo `.env.hub` protegido contendo apenas:
+
+```dotenv
+HUB_API_URL=https://hub-api.kinatech.com.br
+HUB_BRIDGE_KEY=<credencial interna provisionada no servidor>
+```
+
+A API do Hub usa a mesma credencial em `DAILY_DISCORD_BRIDGE_KEY` e uma chave AES de 32 bytes em base64 em `DAILY_DISCORD_ENCRYPTION_KEY`. Esses valores são de infraestrutura e não entram no Git. O token do Discord é configurado pelo painel e fica criptografado no banco do Hub.
+
+```bash
+docker compose -f docker-compose.hub.yml up -d --build
+```
+
+O serviço consulta a configuração a cada 20 segundos. Alterações no token reconectam o bot; desativá-lo no Hub encerra a conexão. Não é preciso editar arquivos ou reiniciar o container para alterar canais, servidores, perguntas ou lembretes.
+
+O convite gerado pelo Hub pede apenas visualização do canal, envio de mensagens, embeds e histórico. O modo Hub não precisa do intent privilegiado de conteúdo de mensagens, nem de permissão de administrador.
+
+### Verificação
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Os testes usam transportes locais e não enviam mensagens para pessoas reais no Discord.

@@ -1,0 +1,26 @@
+services:
+  cafe-daily:
+    build: .
+    container_name: kina-cafe-daily
+    restart: unless-stopped
+    env_file:
+      - .env.hub
+    init: true
+    healthcheck:
+      test: ["CMD", "python", "-m", "src.hub_health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

@@ -9,3 +9,5 @@ __pycache__/
 .eggs/
 dist/
 build/
+
+.env.hub
