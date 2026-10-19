@@ -58,6 +58,11 @@ class CafeDailyBot(commands.Bot):
 
 
 def main() -> None:
+    if os.environ.get("HUB_API_URL"):
+        from src.hub_main import run_hub_bot
+        asyncio.run(run_hub_bot())
+        return
+
     token = _read_discord_token()
     if not token:
         logger.error("Defina DISCORD_TOKEN no ambiente ou no arquivo .env")
