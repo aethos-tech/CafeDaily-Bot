@@ -128,30 +128,68 @@ class HubDailyModal(discord.ui.Modal):
         await interaction.followup.send(f"✅ Daily de **{name}** salvo no Hub. Sua liderança já pode acompanhar o relatório e o horário do envio.", ephemeral=True, allowed_mentions=NO_MENTIONS)
 
 
-class HubDailyPanelView(discord.ui.View):
-    def __init__(self, project_id: str, bridge: HubBridge, projects: dict[str, dict]) -> None:
-        super().__init__(timeout=None)
-        self.project_id = project_id
-        self.bridge = bridge
-        self.projects = projects
-        button = discord.ui.Button(label="Registrar Daily", style=discord.ButtonStyle.primary, custom_id=f"hub:daily:{project_id}")
-        button.callback = self.open_daily
-        self.add_item(button)
+class DailyProjectPickerView(discord.ui.View):
+    """Private, paginated project choices; the API rechecks access on selection."""
 
-    async def open_daily(self, interaction: discord.Interaction) -> None:
+    def __init__(self, bridge: HubBridge, guild_id: str, discord_id: str, projects: list[dict], channel_id: str | None = None) -> None:
+        super().__init__(timeout=900)
+        self.bridge = bridge
+        self.guild_id = guild_id
+        self.discord_id = discord_id
+        self.projects = projects
+        self.channel_id = channel_id
+        self.page = 0
+        self.render()
+
+    def prompt(self) -> str:
+        text = "**Em qual projeto você quer registrar o daily?**\nSelecione um projeto abaixo. Só você vê esta seleção e o formulário."
+        if len(self.projects) > 25:
+            text += f"\n\nPágina {self.page + 1} de {(len(self.projects) + 24) // 25}"
+        return text
+
+    def render(self) -> None:
+        self.clear_items()
+        page = self.projects[self.page * 25:(self.page + 1) * 25]
+        self.select = discord.ui.Select(placeholder="Selecione o projeto do daily", min_values=1, max_values=1, options=[discord.SelectOption(label=project["projectName"][:100] or "Projeto sem nome", value=project["projectId"]) for project in page])
+        self.select.callback = self.choose_project
+        self.add_item(self.select)
+        if len(self.projects) > 25:
+            previous = discord.ui.Button(label="Anterior", disabled=self.page == 0, row=1)
+            previous.callback = self.previous_page
+            following = discord.ui.Button(label="Próxima", disabled=(self.page + 1) * 25 >= len(self.projects), row=1)
+            following.callback = self.next_page
+            self.add_item(previous)
+            self.add_item(following)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if str(interaction.user.id) != self.discord_id or (interaction.guild_id is not None and str(interaction.guild_id) != self.guild_id):
+            await interaction.response.send_message("Esta seleção pertence a outra pessoa ou servidor.", ephemeral=True)
+            return False
+        return True
+
+    async def previous_page(self, interaction: discord.Interaction) -> None:
+        self.page = max(0, self.page - 1)
+        self.render()
+        await interaction.response.edit_message(content=self.prompt(), view=self, allowed_mentions=NO_MENTIONS)
+
+    async def next_page(self, interaction: discord.Interaction) -> None:
+        self.page = min((len(self.projects) - 1) // 25, self.page + 1)
+        self.render()
+        await interaction.response.edit_message(content=self.prompt(), view=self, allowed_mentions=NO_MENTIONS)
+
+    async def choose_project(self, interaction: discord.Interaction) -> None:
+        await self.open_project(interaction, self.select.values[0])
+
+    async def open_project(self, interaction: discord.Interaction, project_id: str) -> None:
+        if not any(project["projectId"] == project_id for project in self.projects):
+            await interaction.response.send_message("Selecione um dos projetos disponíveis no menu.", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
-        project = self.projects.get(self.project_id)
-        if not project:
-            await interaction.followup.send("Este daily foi desativado. Confira a configuração do projeto no Hub.", ephemeral=True)
-            return
-        if interaction.guild_id is not None and str(interaction.guild_id) != project["guildId"]:
-            await interaction.followup.send("Este painel não pertence a este servidor.", ephemeral=True)
-            return
-        payload = {"guildId": project["guildId"], "discordId": str(interaction.user.id)}
-        if interaction.guild_id is not None:
-            payload["channelId"] = str(interaction.channel_id)
+        payload = {"guildId": self.guild_id, "discordId": str(interaction.user.id)}
+        if self.channel_id is not None:
+            payload["channelId"] = self.channel_id
         try:
-            form = await self.bridge.project(self.project_id, "form", payload)
+            form = await self.bridge.project(project_id, "form", payload)
         except HubError as exc:
             await interaction.followup.send(str(exc), ephemeral=True, allowed_mentions=NO_MENTIONS)
             return
@@ -159,6 +197,39 @@ class HubDailyPanelView(discord.ui.View):
         if any(isinstance(answer.get("value"), str) and len(answer["value"]) > 4000 for answer in previous.get("answers", [])) or len(previous.get("blockerDetails") or "") > 4000:
             await interaction.followup.send("Este daily contém respostas maiores que o limite do Discord. Para preservar o conteúdo, atualize este relatório pelo Hub.", ephemeral=True)
             return
-        draft = DailyDraft(self.bridge, self.project_id, project["guildId"], str(interaction.user.id), form)
+        draft = DailyDraft(self.bridge, project_id, self.guild_id, str(interaction.user.id), form)
         name = discord.utils.escape_markdown(form["projectName"])
         await interaction.followup.send(f"**Daily · {name}**\nPreencha as perguntas do projeto. Só você vê este formulário. O envio final ficará disponível para a liderança no Hub.\n\n{draft.prompt()}", view=DailyStepView(draft), ephemeral=True, allowed_mentions=NO_MENTIONS)
+
+
+class HubDailyPanelView(discord.ui.View):
+    def __init__(self, project_id: str | None, bridge: HubBridge, projects: dict[str, dict]) -> None:
+        super().__init__(timeout=None)
+        self.project_id = project_id
+        self.bridge = bridge
+        self.projects = projects
+        button = discord.ui.Button(label="Registrar Daily", style=discord.ButtonStyle.primary, custom_id=f"hub:daily:{project_id}" if project_id else "hub:daily:register")
+        button.callback = self.open_daily
+        self.add_item(button)
+
+    async def open_daily(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        project = self.projects.get(self.project_id) if self.project_id else None
+        guild_id = str(interaction.guild_id) if interaction.guild_id is not None else project["guildId"] if project else None
+        if guild_id is None:
+            await interaction.followup.send("Este daily foi desativado. Confira a configuração do projeto no Hub.", ephemeral=True)
+            return
+        payload = {"guildId": guild_id, "discordId": str(interaction.user.id)}
+        channel_id = str(interaction.channel_id) if interaction.guild_id is not None else None
+        if interaction.guild_id is not None:
+            payload["channelId"] = channel_id
+        try:
+            result = await self.bridge.request("POST", "/projects", payload)
+        except HubError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True, allowed_mentions=NO_MENTIONS)
+            return
+        if not result["projects"]:
+            await interaction.followup.send("Nenhum projeto disponível para registrar daily. Você precisa participar de um projeto com o daily e a integração do Discord habilitados neste servidor.", ephemeral=True, allowed_mentions=NO_MENTIONS)
+            return
+        view = DailyProjectPickerView(self.bridge, guild_id, str(interaction.user.id), result["projects"], channel_id)
+        await interaction.followup.send(view.prompt(), view=view, ephemeral=True, allowed_mentions=NO_MENTIONS)

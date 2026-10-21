@@ -251,8 +251,8 @@ No modo Hub:
 
 1. A administração abre **CaféDaily** no menu do Hub, informa o token e habilita os servidores em que o bot está instalado.
 2. A liderança abre **Configurações do projeto → Daily pelo Discord**, escolhe servidor e canal e salva. O serviço publica o painel automaticamente; também é possível solicitar sua atualização pelo Hub.
-3. Cada participante gera um código temporário na aba **Daily report** e usa `/hub-vincular codigo` no servidor do projeto. O código expira em 10 minutos e só pode ser usado uma vez.
-4. O botão **Registrar Daily** abre um fluxo privado com as perguntas atuais do projeto. Formulários maiores são divididos em etapas, incluindo bloqueios.
+3. Cada participante conecta seu Discord em **Minha conta → Integrações** no Hub, pelo botão de autorização do Discord.
+4. O botão persistente **Registrar Daily** abre uma seleção privada dos projetos do participante com daily e Discord ativos no servidor. A lista é paginada quando há mais de 25 projetos. Depois da escolha, abre o fluxo privado com as perguntas atuais daquele projeto. Formulários maiores são divididos em etapas, incluindo bloqueios. O acesso, o vínculo e a configuração são verificados novamente ao abrir e enviar o formulário.
 5. O envio é validado e salvo no Hub. Atualizar o daily conserva o horário do primeiro envio e mantém um relatório por pessoa, projeto e dia no fuso configurado.
 6. Lembretes chegam por DM apenas a contas vinculadas com a opção habilitada e daily pendente. Dias, horário e fuso vêm do projeto; as preferências da conta são respeitadas. O serviço tenta novamente entregas não confirmadas, com intervalo de 10 minutos e limite de três tentativas por pessoa/dia. Mensagens diretas bloqueadas pelo usuário impedem a entrega.
 
@@ -272,6 +272,8 @@ docker compose -f docker-compose.hub.yml up -d --build
 ```
 
 O serviço consulta a configuração a cada 20 segundos. Alterações no token reconectam o bot; desativá-lo no Hub encerra a conexão. Não é preciso editar arquivos ou reiniciar o container para alterar canais, servidores, perguntas ou lembretes.
+
+Ao iniciar, o bot atualiza os painéis já publicados no mesmo lugar, com a seleção de projetos e as instruções de vínculo por Integrações. Botões antigos de projetos continuam compatíveis. A escolha de projeto e as respostas nunca são publicadas no canal compartilhado.
 
 O convite gerado pelo Hub pede apenas visualização do canal, envio de mensagens, embeds e histórico. O modo Hub não precisa do intent privilegiado de conteúdo de mensagens, nem de permissão de administrador.
 

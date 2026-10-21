@@ -15,6 +15,12 @@ from src.hub_daily import HubDailyPanelView, NO_MENTIONS
 logger = logging.getLogger(__name__)
 
 
+def daily_panel_embed() -> discord.Embed:
+    embed = discord.Embed(title="Daily report · Kina Hub", description="Compartilhe avanços, planos e bloqueios sem sair do Discord.\n\nClique em **Registrar Daily** e selecione seu projeto. Só aparecem os projetos de que você participa com o daily e o Discord habilitados.\n\n**Primeiro acesso:** conecte seu Discord em **Minha conta → Integrações** no Hub.\n\nAs respostas são privadas e ficam organizadas para a liderança no Hub.", color=0xFED813)
+    embed.set_footer(text="CaféDaily + Kina Hub")
+    return embed
+
+
 class HubDailyBot(discord.Client):
     def __init__(self, bridge: HubBridge, revision: str) -> None:
         super().__init__(intents=discord.Intents(guilds=True), allowed_mentions=NO_MENTIONS)
@@ -23,9 +29,11 @@ class HubDailyBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.projects: dict[str, dict] = {}
         self.registered_views: set[str] = set()
+        self.refreshed_panels: set[tuple[str, str, str]] = set()
         self.poll_task: asyncio.Task | None = None
 
     async def setup_hook(self) -> None:
+        self.add_view(HubDailyPanelView(None, self.bridge, self.projects))
         @app_commands.guild_only()
         @app_commands.describe(codigo="Código temporário gerado na aba Daily report do Hub")
         async def link(interaction: discord.Interaction, codigo: str) -> None:
@@ -70,6 +78,10 @@ class HubDailyBot(discord.Client):
                         self.registered_views.add(project_id)
                     if project["panelRevision"] > project["deliveredRevision"]:
                         await self.publish_panel(project)
+                    elif project.get("panelMessageId"):
+                        panel_key = (project["guildId"], project["channelId"], project["panelMessageId"])
+                        if panel_key not in self.refreshed_panels and await self.refresh_panel(project):
+                            self.refreshed_panels.add(panel_key)
                     if iteration % 3 == 0:
                         await self.remind(project)
                 iteration += 1
@@ -78,6 +90,23 @@ class HubDailyBot(discord.Client):
             except Exception:
                 logger.error("Hub integration cycle failed; it will retry")
             await asyncio.sleep(20)
+
+    async def panel_channel(self, project: dict) -> discord.TextChannel | discord.Thread:
+        channel = self.get_channel(int(project["channelId"])) or await self.fetch_channel(int(project["channelId"]))
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)) or str(channel.guild.id) != project["guildId"]:
+            raise ValueError("Channel does not belong to configured guild")
+        return channel
+
+    async def refresh_panel(self, project: dict) -> bool:
+        """Refresh existing panels once after restart without creating new messages."""
+        try:
+            channel = await self.panel_channel(project)
+            message = await channel.fetch_message(int(project["panelMessageId"]))
+            await message.edit(embed=daily_panel_embed(), view=HubDailyPanelView(None, self.bridge, self.projects), allowed_mentions=NO_MENTIONS)
+            return True
+        except (discord.HTTPException, ValueError):
+            logger.warning("Could not refresh an existing daily panel; check the channel in the Hub")
+            return False
 
     async def publish_panel(self, project: dict) -> None:
         project_id = project["projectId"]
@@ -88,12 +117,9 @@ class HubDailyBot(discord.Client):
         message_id = None
         error = None
         try:
-            channel = self.get_channel(int(project["channelId"])) or await self.fetch_channel(int(project["channelId"]))
-            if not isinstance(channel, (discord.TextChannel, discord.Thread)) or str(channel.guild.id) != project["guildId"]:
-                raise ValueError("Channel does not belong to configured guild")
-            embed = discord.Embed(title=f"Daily report · {project['projectName']}"[:256], description="Compartilhe avanços, planos e bloqueios sem sair do Discord.\n\n**Primeiro acesso:** gere um código na aba Daily report do Hub e use `/hub-vincular`. Depois, clique em **Registrar Daily**.\n\nAs respostas são privadas e ficam organizadas para a liderança no Hub.", color=0xFED813)
-            embed.set_footer(text="CaféDaily + Kina Hub")
-            view = HubDailyPanelView(project_id, self.bridge, self.projects)
+            channel = await self.panel_channel(project)
+            embed = daily_panel_embed()
+            view = HubDailyPanelView(None, self.bridge, self.projects)
             previous = None
             if project.get("panelMessageId"):
                 try:
@@ -118,7 +144,7 @@ class HubDailyBot(discord.Client):
             try:
                 person = self.get_user(int(reminder["discordId"])) or await self.fetch_user(int(reminder["discordId"]))
                 name = discord.utils.escape_markdown(reminder["projectName"])
-                await person.send(f"☕ Hora do daily de **{name}**! Seu relatório de hoje ainda está pendente no Hub. Use o botão abaixo para responder.\n\nVocê pode desativar estes lembretes na aba Daily report do Hub.", view=HubDailyPanelView(project_id, self.bridge, self.projects), allowed_mentions=NO_MENTIONS)
+                await person.send(f"☕ Hora do daily de **{name}**! Seu relatório de hoje ainda está pendente no Hub. Use o botão abaixo e selecione o projeto para responder.\n\nVocê pode desativar estes lembretes em Minha conta → Integrações no Hub.", view=HubDailyPanelView(project_id, self.bridge, self.projects), allowed_mentions=NO_MENTIONS)
             except discord.HTTPException:
                 logger.warning("A daily reminder could not be delivered; Hub retry limits apply")
                 continue
