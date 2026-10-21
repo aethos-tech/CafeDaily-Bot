@@ -8,7 +8,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from src.hub_bridge import HubBridge, HubError
-from src.hub_daily import DailyDraft, DailyProjectPickerView, DailyStepView, HubDailyModal, HubDailyPanelView, field_pages, parse_boolean
+from src.hub_daily import DailyDraft, DailyProjectPickerView, DailyStepView, HubDailyModal, HubDailyPanelView, field_pages, parse_boolean, open_daily_command
 from src.hub_main import HubDailyBot
 
 
@@ -109,6 +109,38 @@ class ProjectSelectionTests(unittest.IsolatedAsyncioTestCase):
         self.projects = [{"projectId": "alpha", "projectName": "Alfa"}, {"projectId": "beta", "projectName": "Beta"}]
         self.bridge.request.return_value = {"projects": self.projects}
         self.bridge.project.return_value = form()
+
+    async def test_daily_command_in_any_channel_does_not_require_a_panel(self):
+        event = interaction()
+        await open_daily_command(event, self.bridge)
+        self.bridge.request.assert_awaited_once_with("POST", "/projects", {"guildId": "111111111111111111", "discordId": "333333333333333333"})
+        menu = event.followup.send.call_args.kwargs["view"]
+        self.assertIsNone(menu.channel_id)
+        self.assertTrue(event.followup.send.call_args.kwargs["ephemeral"])
+
+    async def test_daily_command_in_dm_uses_selected_project_guild(self):
+        self.bridge.request.return_value = {"projects": [{"projectId": "alpha", "projectName": "Alfa", "guildId": "111111111111111111"}]}
+        event = interaction(guild_id=None)
+        await open_daily_command(event, self.bridge)
+        self.bridge.request.assert_awaited_once_with("POST", "/projects", {"discordId": "333333333333333333"})
+        menu = event.followup.send.call_args.kwargs["view"]
+        self.assertTrue(await menu.interaction_check(event))
+        await menu.open_project(event, "alpha")
+        self.bridge.project.assert_awaited_once_with("alpha", "form", {"guildId": "111111111111111111", "discordId": "333333333333333333"})
+        self.assertEqual(event.followup.send.call_args.kwargs["view"].draft.guild_id, "111111111111111111")
+
+    async def test_command_registration_allows_guild_and_bot_dm(self):
+        bot = HubDailyBot(self.bridge, "revision")
+        bot.tree.sync = AsyncMock()
+        bot.poll = AsyncMock()
+        try:
+            await bot.setup_hook()
+            command = bot.tree.get_command("daily")
+            self.assertTrue(command.allowed_contexts.guild)
+            self.assertTrue(command.allowed_contexts.dm_channel)
+            self.assertFalse(command.allowed_contexts.private_channel)
+        finally:
+            await bot.close()
 
     async def test_persistent_panel_shows_private_choices_before_loading_any_report(self):
         panel = HubDailyPanelView(None, self.bridge, {})

@@ -284,3 +284,7 @@ python -m unittest discover -s tests -v
 ```
 
 Os testes usam transportes locais e não enviam mensagens para pessoas reais no Discord.
+
+### Comando `/daily` (modo Hub)
+
+Use `/daily` em qualquer canal do servidor ou no privado do bot para selecionar um projeto e preencher o daily. No servidor, a seleção e o formulário aparecem só para você. Conecte sua conta em **Minha conta → Integrações** no Hub; apenas projetos em que você participa com daily e Discord ativos em servidores aprovados aparecem. No privado, a lista reúne seus projetos habilitados. Reinicie o bot após atualizar para sincronizar o comando global.
