@@ -131,7 +131,7 @@ class HubDailyModal(discord.ui.Modal):
 class DailyProjectPickerView(discord.ui.View):
     """Private, paginated project choices; the API rechecks access on selection."""
 
-    def __init__(self, bridge: HubBridge, guild_id: str, discord_id: str, projects: list[dict], channel_id: str | None = None) -> None:
+    def __init__(self, bridge: HubBridge, guild_id: str | None, discord_id: str, projects: list[dict], channel_id: str | None = None) -> None:
         super().__init__(timeout=900)
         self.bridge = bridge
         self.guild_id = guild_id
@@ -185,7 +185,9 @@ class DailyProjectPickerView(discord.ui.View):
             await interaction.response.send_message("Selecione um dos projetos disponíveis no menu.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        payload = {"guildId": self.guild_id, "discordId": str(interaction.user.id)}
+        selected = next(project for project in self.projects if project["projectId"] == project_id)
+        guild_id = self.guild_id or selected["guildId"]
+        payload = {"guildId": guild_id, "discordId": str(interaction.user.id)}
         if self.channel_id is not None:
             payload["channelId"] = self.channel_id
         try:
@@ -197,7 +199,7 @@ class DailyProjectPickerView(discord.ui.View):
         if any(isinstance(answer.get("value"), str) and len(answer["value"]) > 4000 for answer in previous.get("answers", [])) or len(previous.get("blockerDetails") or "") > 4000:
             await interaction.followup.send("Este daily contém respostas maiores que o limite do Discord. Para preservar o conteúdo, atualize este relatório pelo Hub.", ephemeral=True)
             return
-        draft = DailyDraft(self.bridge, project_id, self.guild_id, str(interaction.user.id), form)
+        draft = DailyDraft(self.bridge, project_id, guild_id, str(interaction.user.id), form)
         name = discord.utils.escape_markdown(form["projectName"])
         await interaction.followup.send(f"**Daily · {name}**\nPreencha as perguntas do projeto. Só você vê este formulário. O envio final ficará disponível para a liderança no Hub.\n\n{draft.prompt()}", view=DailyStepView(draft), ephemeral=True, allowed_mentions=NO_MENTIONS)
 
@@ -233,3 +235,22 @@ class HubDailyPanelView(discord.ui.View):
             return
         view = DailyProjectPickerView(self.bridge, guild_id, str(interaction.user.id), result["projects"], channel_id)
         await interaction.followup.send(view.prompt(), view=view, ephemeral=True, allowed_mentions=NO_MENTIONS)
+
+
+async def open_daily_command(interaction: discord.Interaction, bridge: HubBridge) -> None:
+    """Open private choices from any guild channel or the bot DM."""
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild_id) if interaction.guild_id is not None else None
+    payload = {"discordId": str(interaction.user.id)}
+    if guild_id is not None:
+        payload["guildId"] = guild_id
+    try:
+        result = await bridge.request("POST", "/projects", payload)
+    except HubError as exc:
+        await interaction.followup.send(str(exc), ephemeral=True, allowed_mentions=NO_MENTIONS)
+        return
+    if not result["projects"]:
+        await interaction.followup.send("Nenhum projeto disponível. Confira seu vínculo com o Hub e sua participação em um projeto com daily e Discord habilitados.", ephemeral=True, allowed_mentions=NO_MENTIONS)
+        return
+    view = DailyProjectPickerView(bridge, guild_id, str(interaction.user.id), result["projects"])
+    await interaction.followup.send(view.prompt(), view=view, ephemeral=True, allowed_mentions=NO_MENTIONS)

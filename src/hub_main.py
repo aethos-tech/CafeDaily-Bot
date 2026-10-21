@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 
 from src.hub_bridge import HubBridge, HubError
-from src.hub_daily import HubDailyPanelView, NO_MENTIONS
+from src.hub_daily import HubDailyPanelView, NO_MENTIONS, open_daily_command
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ class HubDailyBot(discord.Client):
             await interaction.followup.send("✅ Conta vinculada ao Hub. Agora você pode usar o botão Registrar Daily. Os lembretes por DM podem ser desativados no Hub.", ephemeral=True)
 
         self.tree.add_command(app_commands.Command(name="hub-vincular", description="Vincular sua conta do Discord ao Kina Hub", callback=link))
+        async def daily(interaction: discord.Interaction) -> None:
+            await open_daily_command(interaction, self.bridge)
+
+        self.tree.add_command(app_commands.Command(name="daily", description="Selecionar um projeto e preencher seu daily em privado", callback=daily, allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=True, private_channel=False), allowed_installs=app_commands.AppInstallationType(guild=True, user=False)))
         await self.tree.sync()
         self.poll_task = asyncio.create_task(self.poll())
 
